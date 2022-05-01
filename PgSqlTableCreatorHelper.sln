@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.1.32421.90
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PgSqlTableCreatorHelper", "PgSqlTableCreatorHelper.csproj", "{1A40A439-0985-4DE2-BC41-E6193783016D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1A40A439-0985-4DE2-BC41-E6193783016D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A40A439-0985-4DE2-BC41-E6193783016D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A40A439-0985-4DE2-BC41-E6193783016D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A40A439-0985-4DE2-BC41-E6193783016D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E0F069C8-2E72-44FE-A36F-00D986494B54}
+	EndGlobalSection
+EndGlobal
