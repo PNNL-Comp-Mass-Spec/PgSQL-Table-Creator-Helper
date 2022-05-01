@@ -245,6 +245,7 @@ T_Experiments	EX_well_num	well
 T_Experiments	EX_wellplate_num	wellplate
 T_Experiments	Exp_ID	exp_id
 T_Experiments	Experiment_Num	experiment
+T_Experiments	Exp_Num	experiment
 T_File_Attachment	ID	attachment_id
 T_Instrument_Class	IN_class	instrument_class
 T_Instrument_Class	is_purgable	is_purgeable
@@ -355,7 +356,7 @@ T_Organisms_Change_History	OG_Order	order
 T_Organisms_Change_History	OG_Phylum	phylum
 T_Organisms_Change_History	OG_Short_Name	short_name
 T_Organisms_Change_History	OG_Species	species
-T_Organisms_Change_History	OG_Strain	strain	
+T_Organisms_Change_History	OG_Strain	strain
 T_Organisms_Change_History	Organism_ID	organism_id
 T_Predefined_Analysis	AD_analysisToolName	analysis_tool_name
 T_Predefined_Analysis	AD_campaignExclCriteria	campaign_excl_criteria

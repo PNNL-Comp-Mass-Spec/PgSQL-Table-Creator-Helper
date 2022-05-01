@@ -564,7 +564,7 @@ CREATE INDEX "ix_t_experiments_campaign_id_exp_id" ON "public"."t_experiments" (
 CREATE INDEX "ix_t_experiments_container_id_include_campaign_id" ON "public"."t_experiments" ("container_id" ASC) INCLUDE ("campaign_id");
 CREATE INDEX "ix_t_experiments_campaign_id" ON "public"."t_experiments" ("campaign_id" ASC);
 CREATE INDEX "ix_t_experiments_created" ON "public"."t_experiments" ("created" ASC);
-CREATE INDEX "ix_t_experiments_exp_id_campaign_id_exp_num" ON "public"."t_experiments" ("exp_id" ASC,"campaign_id" ASC,"experiment" ASC);
+CREATE INDEX "ix_t_experiments_exp_id_campaign_id_experiment" ON "public"."t_experiments" ("exp_id" ASC,"campaign_id" ASC,"experiment" ASC);
 CREATE INDEX "ix_t_experiments_exp_id_container_id" ON "public"."t_experiments" ("exp_id" ASC,"container_id" ASC);
 CREATE INDEX "ix_t_experiments_exp_id_campaign_id" ON "public"."t_experiments" ("exp_id" ASC,"campaign_id" ASC);
 CREATE INDEX "ix_t_experiments_experiment_container_id_exp_id" ON "public"."t_experiments" ("experiment" ASC,"container_id" ASC,"exp_id" ASC);
