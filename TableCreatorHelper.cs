@@ -57,6 +57,32 @@ namespace PgSqlTableCreatorHelper
             return updatedName.ToLower();
         }
 
+        private List<string> GetColumnNames(Group columnMatchGroup)
+        {
+            if (!columnMatchGroup.Success)
+                return new List<string>();
+
+            var columnList = columnMatchGroup.Value.Split(',');
+
+            var columnNames = new List<string>();
+
+            foreach (var item in columnList)
+            {
+                string quotedName;
+
+                if (item.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase))
+                    quotedName = item.Substring(0, item.Length - 3).Trim();
+                else if (item.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase))
+                    quotedName = item.Substring(0, item.Length - 4).Trim();
+                else
+                    quotedName = item;
+
+                columnNames.Add(quotedName.Replace("\"", string.Empty));
+            }
+
+            return columnNames;
+        }
+
         /// <summary>
         /// Get the object name, without the schema
         /// </summary>
@@ -210,6 +236,10 @@ namespace PgSqlTableCreatorHelper
                     }
                 }
 
+                var addConstraintMatcher = new Regex(
+                    "^ *ALTER TABLE (?<TableName>.+?) ADD CONSTRAINT (?<ConstraintName>.+?) (?<ConstraintType>UNIQUE|PRIMARY KEY)",
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
                 var indexMatcherWithInclude = new Regex(
                     @"^ *CREATE (UNIQUE )?INDEX (?<IndexName>.+?) ON (?<TableNameWithSchema>.+?) \((?<IndexedColumns>.+?)\) INCLUDE \((?<IncludedColumns>.+)\)(?<Suffix>.*)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -217,6 +247,9 @@ namespace PgSqlTableCreatorHelper
                 var indexMatcher = new Regex(
                     @"^ *CREATE (UNIQUE )?INDEX (?<IndexName>.+?) ON (?<TableNameWithSchema>.+?) \((?<IndexedColumns>.+?)\)(?<Suffix>.*)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+                // Keys in this dictionary are index or constraint name, values are the table the index or constraint applies to
+                var indexAndConstraintNames = new Dictionary<string, string>();
 
                 using var reader = new StreamReader(new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
                 using var writer = new StreamWriter(new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.Read));
@@ -244,6 +277,19 @@ namespace PgSqlTableCreatorHelper
                         continue;
                     }
 
+                    var constraintMatch = addConstraintMatcher.Match(dataLine);
+
+                    if (constraintMatch.Success)
+                    {
+                        var constraintName = constraintMatch.Groups["ConstraintName"].Value;
+                        var tableName = constraintMatch.Groups["TableName"].Value;
+
+                        indexAndConstraintNames.Add(TrimQuotes(constraintName), TrimQuotes(GetNameWithoutSchema(tableName)));
+
+                        writer.WriteLine(dataLine);
+                        continue;
+                    }
+
                     Match indexMatch;
 
                     var indexWithIncludeMatch = indexMatcherWithInclude.Match(dataLine);
@@ -265,7 +311,7 @@ namespace PgSqlTableCreatorHelper
                         continue;
                     }
 
-                    var success = ProcessCreateIndexLine(dataLine, indexMatch, columnNameMap, writer);
+                    var success = ProcessCreateIndexLine(dataLine, indexMatch, columnNameMap, writer, indexAndConstraintNames);
                     if (!success)
                         return false;
 
@@ -296,12 +342,17 @@ namespace PgSqlTableCreatorHelper
         /// and values are a Dictionary of mappings of original column names to new column names in PostgreSQL;
         /// names should not have double quotes around them
         /// </param>
-        /// <param name="writer"></param>
+        /// <param name="writer">
+        /// Output file writer</param>
+        /// <param name="indexAndConstraintNames">
+        /// Keys in this dictionary are constraint or index name, values are the table the constraint or index applies to
+        /// </param>
         private bool ProcessCreateIndexLine(
             string sourceDataLine,
             Match indexMatch,
             Dictionary<string, Dictionary<string, WordReplacer>> columnNameMap,
-            TextWriter writer)
+            TextWriter writer,
+            IDictionary<string, string> indexAndConstraintNames)
         {
             var referencedTables = new SortedSet<string>();
 
@@ -358,6 +409,76 @@ namespace PgSqlTableCreatorHelper
                     else
                         indexName = indexName.Substring(0, tableNameIndex + tableName.Length) + indexNamePortion;
                 }
+            }
+
+            var indexNameNoQuotes = TrimQuotes(indexName);
+
+            if (indexAndConstraintNames.TryGetValue(indexNameNoQuotes, out var otherTableName))
+            {
+                if (tableName.Equals(otherTableName, StringComparison.OrdinalIgnoreCase))
+                {
+                    OnWarningEvent("Duplicate index name found on table {0}: {1}", tableName, indexNameNoQuotes);
+                }
+                else
+                {
+                    OnWarningEvent("Duplicate index name found on table {0}: {1} is also on {2}", tableName, indexNameNoQuotes, otherTableName);
+                }
+
+                var indexedColumns = GetColumnNames(indexMatch.Groups["IndexedColumns"]);
+                var includedColumns = GetColumnNames(indexMatch.Groups["IncludedColumns"]);
+
+                var nameUpdateRequired = true;
+
+                foreach (var indexedColumn in indexedColumns)
+                {
+                    indexNameNoQuotes += string.Format("_{0}", indexedColumn);
+
+                    if (indexAndConstraintNames.ContainsKey(indexNameNoQuotes))
+                        continue;
+
+                    indexAndConstraintNames.Add(indexNameNoQuotes, tableName);
+                    nameUpdateRequired = false;
+                    break;
+                }
+
+                if (nameUpdateRequired && includedColumns.Count > 0)
+                {
+                    indexNameNoQuotes += "_include";
+
+                    foreach (var includedColumn in includedColumns)
+                    {
+                        indexNameNoQuotes += string.Format("_{0}", includedColumn);
+
+                        if (indexAndConstraintNames.ContainsKey(indexNameNoQuotes))
+                            continue;
+
+                        indexAndConstraintNames.Add(indexNameNoQuotes, tableName);
+                        nameUpdateRequired = false;
+                        break;
+                    }
+                }
+
+                if (nameUpdateRequired)
+                {
+                    // Append an integer to generate a unique name
+
+                    for (var addOn = 2; indexAndConstraintNames.ContainsKey(indexNameNoQuotes); addOn++)
+                    {
+                        if (indexAndConstraintNames.ContainsKey(indexNameNoQuotes + addOn))
+                            continue;
+
+                        indexNameNoQuotes += addOn;
+                        indexAndConstraintNames.Add(indexName, tableName);
+                        break;
+                    }
+                }
+
+                // Update indexName, surrounding with double quotes
+                indexName = string.Format("\"{0}\"", indexNameNoQuotes);
+            }
+            else
+            {
+                indexAndConstraintNames.Add(indexNameNoQuotes, tableName);
             }
 
             if (!indexMatch.Groups["IndexName"].Value.Equals(indexName))
