@@ -494,7 +494,7 @@ CREATE INDEX "ix_t_requested_run_state_name" ON "public"."t_requested_run" ("sta
 CREATE INDEX "ix_t_requested_run_updated" ON "public"."t_requested_run" ("updated" ASC);
 CREATE UNIQUE INDEX "ix_t_requested_run_batches" ON "public"."t_requested_run_batches" ("batch" ASC);
 CREATE INDEX "ix_t_requested_run_eus_users_request_id" ON "public"."t_requested_run_eus_users" ("request_id" ASC);
-CREATE UNIQUE INDEX "ix_t_requested_run_state_name" ON "public"."t_requested_run_state_name" ("state_id" ASC);
+CREATE UNIQUE INDEX "ix_t_requested_run_state_name_state_id" ON "public"."t_requested_run_state_name" ("state_id" ASC);
 CREATE INDEX "ix_t_requested_run_status_history_state_id" ON "public"."t_requested_run_status_history" ("state_id" ASC);
 CREATE INDEX "ix_t_residues_symbol" ON "public"."t_residues" ("residue_symbol" ASC);
 CREATE INDEX "ix_t_sp_authorization_login_name" ON "public"."t_sp_authorization" ("login_name" ASC);
