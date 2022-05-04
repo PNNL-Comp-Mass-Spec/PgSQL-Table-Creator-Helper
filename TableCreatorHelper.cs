@@ -391,8 +391,78 @@ namespace PgSqlTableCreatorHelper
                                 continue;
                             }
                         }
+                        else
+                        {
+                            string constraintNameToExamine;
+                            string constraintNameToUse;
 
-                        indexAndConstraintNames.Add(TrimQuotes(constraintName), TrimQuotes(GetNameWithoutSchema(tableName)));
+                            if (constraintType.Equals("PRIMARY KEY", StringComparison.OrdinalIgnoreCase) &&
+                                !constraintNameNoQuotes.StartsWith("pk_", StringComparison.OrdinalIgnoreCase))
+                            {
+                                // Rename primary key constraints to start with pk_
+
+                                if (constraintNameNoQuotes.EndsWith("_pk"))
+                                {
+                                    constraintNameToExamine = "pk_" + constraintNameNoQuotes.Substring(0, constraintNameNoQuotes.Length - 3);
+                                }
+                                else
+                                {
+                                    constraintNameToExamine = "pk_" + constraintNameNoQuotes;
+                                }
+                            }
+                            else if (constraintType.Equals("UNIQUE", StringComparison.OrdinalIgnoreCase) &&
+                                     constraintNameNoQuotes.Equals("ix_" + tableNameWithoutSchema, StringComparison.OrdinalIgnoreCase))
+                            {
+                                // SQL server uses the generic name IX_T_TableName for unique constraints
+                                // Customize the constraint name
+                                constraintNameToExamine = string.Format("{0}_unique_{1}", constraintNameNoQuotes, TrimQuotes(targetColumn));
+                            }
+                            else
+                            {
+                                constraintNameToExamine = constraintNameNoQuotes;
+                            }
+
+                            if (constraintNameToExamine.Length > MAX_OBJECT_NAME_LENGTH)
+                            {
+                                constraintNameToUse = TruncateString(constraintNameToExamine, MAX_OBJECT_NAME_LENGTH);
+
+                                OnWarningEvent(
+                                    "Constraint name is longer than {0} characters; truncating to: {1}",
+                                    MAX_OBJECT_NAME_LENGTH, constraintNameToUse);
+                            }
+                            else
+                            {
+                                constraintNameToUse = constraintNameToExamine;
+                            }
+
+                            if (indexAndConstraintNames.ContainsKey(constraintNameToUse))
+                            {
+                                OnWarningEvent("Duplicate constraint name found on table {0}: {1}", tableName, constraintNameToUse);
+
+                                // Append an integer to generate a unique name
+                                var newConstraintName = GetUniqueName(constraintNameToUse, tableName, indexAndConstraintNames);
+
+                                var updatedLine = dataLine.Replace(constraintNameNoQuotes, newConstraintName);
+                                writer.WriteLine(updatedLine);
+
+                                indexAndConstraintNames.Add(newConstraintName, tableNameWithoutSchema);
+                                continue;
+                            }
+
+                            if (!constraintNameToUse.Equals(constraintNameNoQuotes))
+                            {
+                                OnWarningEvent("Renaming {0} constraint on table {1}: {2}",
+                                    constraintType.ToLower(), tableName, constraintNameToUse);
+
+                                var updatedLine = dataLine.Replace(constraintNameNoQuotes, constraintNameToUse);
+                                writer.WriteLine(updatedLine);
+
+                                indexAndConstraintNames.Add(constraintNameToUse, tableNameWithoutSchema);
+                                continue;
+                            }
+
+                            indexAndConstraintNames.Add(constraintNameNoQuotes, tableNameWithoutSchema);
+                        }
 
                         writer.WriteLine(dataLine);
                         continue;
