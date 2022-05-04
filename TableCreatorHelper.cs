@@ -137,7 +137,7 @@ namespace PgSqlTableCreatorHelper
         /// Simply looks for the first period and assumes the schema name is before the period and the object name is after it
         /// </remarks>
         /// <param name="objectName"></param>
-        private string GetNameWithoutSchema(string objectName)
+        private static string GetNameWithoutSchema(string objectName)
         {
             if (string.IsNullOrWhiteSpace(objectName))
                 return string.Empty;
