@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using PRISM;
 using TableColumnNameMapContainer;
@@ -9,7 +11,12 @@ namespace PgSqlTableCreatorHelper
 {
     public class TableCreatorHelper : EventNotifier
     {
-        // Ignore Spelling: dbo, dms, dpkg, mc, ont, sw
+        // Ignore Spelling: dbo, dms, dpkg, mc, Postgres, ont, sw
+
+        /// <summary>
+        /// Maximum length of object names in PostgreSQL
+        /// </summary>
+        private const int MAX_OBJECT_NAME_LENGTH = 63;
 
         /// <summary>
         /// Match any lowercase letter
@@ -34,6 +41,46 @@ namespace PgSqlTableCreatorHelper
             mAnyLowerMatcher = new Regex("[a-z]", RegexOptions.Compiled | RegexOptions.Singleline);
 
             mCamelCaseMatcher = new Regex("(?<LowerLetter>[a-z])(?<UpperLetter>[A-Z])", RegexOptions.Compiled);
+        }
+
+        /// <summary>
+        /// Determine the actual foreign key name to use for each foreign key
+        /// </summary>
+        /// <param name="truncatedForeignKeyMap">
+        /// Keys in this dictionary are foreign key names, truncated to 63 characters
+        /// Values are the full key names that correspond to each truncated name
+        /// </param>
+        /// <returns>
+        /// Dictionary where Keys are the original, full length foreign key name and values are the actual name to use (possibly truncated)
+        /// </returns>
+        private Dictionary<string, string> ConstructForeignKeyMap(Dictionary<string, List<string>> truncatedForeignKeyMap)
+        {
+            var foreignKeyNameMap = new Dictionary<string, string>();
+
+            foreach (var truncatedForeignKey in truncatedForeignKeyMap)
+            {
+                var truncatedName = truncatedForeignKey.Key;
+
+                if (truncatedForeignKey.Value.Count > 1)
+                {
+                    // Multiple foreign keys have been truncated to the same value
+                    // Sequentially number them
+
+                    var i = 1;
+                    foreach (var originalKeyName in truncatedForeignKey.Value)
+                    {
+                        foreignKeyNameMap.Add(originalKeyName, string.Format("{0}{1}", truncatedName, i));
+                        i++;
+                    }
+
+                    continue;
+                }
+
+                // Only one foreign key; append to the dictionary
+                foreignKeyNameMap.Add(truncatedForeignKey.Value[0], truncatedName);
+            }
+
+            return foreignKeyNameMap;
         }
 
         /// <summary>
@@ -275,9 +322,12 @@ namespace PgSqlTableCreatorHelper
                 if (!LoadNameMapFiles(out var columnNameMap))
                     return false;
 
+                // Scan the input file to look for foreign key name conflicts, considering the 63 character limit
+                if (!ResolveForeignKeyNameConflicts(inputFile, out var foreignKeyRenames))
+                    return false;
 
                 var addConstraintMatcher = new Regex(
-                    "^ *ALTER TABLE (?<TableName>.+?) ADD CONSTRAINT (?<ConstraintName>.+?) (?<ConstraintType>UNIQUE|PRIMARY KEY)",
+                    @"^ *ALTER TABLE (?<TableName>.+?) ADD CONSTRAINT (?<ConstraintName>.+?) (?<ConstraintType>UNIQUE|PRIMARY KEY|FOREIGN KEY) \((?<TargetColumn>.+?)\)",
                     RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
                 var indexMatcherWithInclude = new Regex(
@@ -322,7 +372,25 @@ namespace PgSqlTableCreatorHelper
                     if (constraintMatch.Success)
                     {
                         var constraintName = constraintMatch.Groups["ConstraintName"].Value;
+                        var constraintNameNoQuotes = TrimQuotes(constraintName);
+
                         var tableName = constraintMatch.Groups["TableName"].Value;
+                        var tableNameWithoutSchema = TrimQuotes(GetNameWithoutSchema(tableName));
+
+                        var constraintType = constraintMatch.Groups["ConstraintType"].Value;
+
+                        var targetColumn = constraintMatch.Groups["TargetColumn"].Value;
+
+                        if (constraintType.Equals("FOREIGN KEY", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (foreignKeyRenames.TryGetValue(tableNameWithoutSchema, out var renamedForeignKeys) &&
+                                renamedForeignKeys.TryGetValue(constraintNameNoQuotes, out var newForeignKeyName))
+                            {
+                                var updatedLine = dataLine.Replace(constraintNameNoQuotes, newForeignKeyName);
+                                writer.WriteLine(updatedLine);
+                                continue;
+                            }
+                        }
 
                         indexAndConstraintNames.Add(TrimQuotes(constraintName), TrimQuotes(GetNameWithoutSchema(tableName)));
 
@@ -367,6 +435,223 @@ namespace PgSqlTableCreatorHelper
             catch (Exception ex)
             {
                 OnErrorEvent("Error in ProcessInputFile", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Look for foreign key name conflicts, considering the 63 character limit on object names
+        /// When conflicts are found, truncate to just before an underscore then add integers
+        /// Also look for long foreign names and truncate them cleanly
+        /// </summary>
+        /// <param name="inputFile"></param>
+        /// <param name="foreignKeyRenames">Dictionary where keys are table names and values are the foreign keys to rename for each table</param>
+        /// <returns>True if successful, false if an error</returns>
+        private bool ResolveForeignKeyNameConflicts(
+            FileSystemInfo inputFile,
+            out Dictionary<string, Dictionary<string, string>> foreignKeyRenames)
+        {
+            foreignKeyRenames = new Dictionary<string, Dictionary<string, string>>();
+
+            var foreignKeysByTable = new Dictionary<string, List<string>>();
+
+            try
+            {
+                var addConstraintMatcher = new Regex(
+                    "^ *ALTER TABLE (?<TableName>.+?) ADD CONSTRAINT (?<ConstraintName>.+?) (?<ConstraintType>UNIQUE|PRIMARY KEY|FOREIGN KEY)",
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+                using var reader = new StreamReader(new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+
+                // Cache the foreign key names
+                while (!reader.EndOfStream)
+                {
+                    var dataLine = reader.ReadLine();
+
+                    if (string.IsNullOrWhiteSpace(dataLine))
+                    {
+                        continue;
+                    }
+
+                    var constraintMatch = addConstraintMatcher.Match(dataLine);
+
+                    if (!constraintMatch.Success)
+                    {
+                        continue;
+                    }
+
+                    var constraintType = constraintMatch.Groups["ConstraintType"].Value;
+
+                    if (!constraintType.Equals("FOREIGN KEY"))
+                    {
+                        // For now, this method only examines foreign key constraints
+                        continue;
+                    }
+
+                    var constraintName = constraintMatch.Groups["ConstraintName"].Value;
+                    var constraintNameNoQuotes = TrimQuotes(constraintName);
+
+                    var tableName = constraintMatch.Groups["TableName"].Value;
+                    var tableNameWithoutSchema = TrimQuotes(GetNameWithoutSchema(tableName));
+
+                    if (!foreignKeysByTable.ContainsKey(tableNameWithoutSchema))
+                    {
+                        foreignKeysByTable.Add(tableNameWithoutSchema, new List<string>());
+                    }
+
+                    var foreignKeyNames = foreignKeysByTable[tableNameWithoutSchema];
+
+                    foreignKeyNames.Add(constraintNameNoQuotes);
+                }
+
+                // Keys in this dictionary are foreign keys for the current table, truncated to 63 characters
+                // Values are the full key names that correspond to the truncated name
+                var truncatedForeignKeyMap = new Dictionary<string, List<string>>();
+
+                // Examine the foreign keys on each table, looking for conflicts after truncating to 63 characters
+                // In addition, look for long names and truncate at a clean position
+                foreach (var currentTable in foreignKeysByTable)
+                {
+                    var tableName = currentTable.Key;
+
+                    if (tableName.Equals("t_analysis_job_processor_group_membership"))
+                    {
+                        // Bad updated foreign key name: "t_analysis_job_processor_group_t_analysis_job_processor_group"
+                        Console.WriteLine("Check this code");
+                    }
+
+                    truncatedForeignKeyMap.Clear();
+                    foreach (var foreignKey in currentTable.Value)
+                    {
+                        // Assure that the foreign key name starts with "fk_"
+                        var foreignKeyNameToUse = foreignKey.StartsWith("t_", StringComparison.OrdinalIgnoreCase)
+                            ? "fk_" + foreignKey
+                            : foreignKey;
+
+                        var truncatedName = TruncateString(foreignKeyNameToUse, MAX_OBJECT_NAME_LENGTH);
+
+                        if (!truncatedForeignKeyMap.ContainsKey(truncatedName))
+                        {
+                            truncatedForeignKeyMap.Add(truncatedName, new List<string>());
+                        }
+
+                        var fullNames = truncatedForeignKeyMap[truncatedName];
+
+                        fullNames.Add(foreignKey);
+                    }
+
+                    var additionalTruncationRequired =
+                        truncatedForeignKeyMap.Any(truncatedForeignKey => truncatedForeignKey.Value.Count > 1 &&
+                                                                          truncatedForeignKey.Key.Length == MAX_OBJECT_NAME_LENGTH);
+
+                    if (additionalTruncationRequired)
+                    {
+                        // Two or more foreign key names will be truncated to exactly 63 characters
+                        // Truncate to 62 characters to allow for appending an integer
+
+                        TruncateDictionaryKeys(truncatedForeignKeyMap, MAX_OBJECT_NAME_LENGTH - 1);
+                    }
+
+                    // Keys in this dictionary are the original foreign key name; values are the shortened name
+                    var foreignKeyNameMap = ConstructForeignKeyMap(truncatedForeignKeyMap);
+
+                    // New name conflicts may have been introduced after renaming things; check for this, and rename further if required
+                    var updatedNames = new SortedSet<string>();
+                    var duplicateNameFound = false;
+
+                    foreach (var updatedName in foreignKeyNameMap.Values)
+                    {
+                        if (updatedNames.Contains(updatedName))
+                        {
+                            duplicateNameFound = true;
+                            break;
+                        }
+
+                        updatedNames.Add(updatedName);
+                    }
+
+                    if (duplicateNameFound)
+                    {
+                        // Duplicate renamed foreign key found
+
+                        // Keys in this dictionary are foreign keys for the current table, truncated to around 60 characters
+                        // Values are the full key names that correspond to the truncated name
+                        var truncatedForeignKeyMap2 = new Dictionary<string, List<string>>();
+
+                        foreach (var item in foreignKeyNameMap)
+                        {
+                            if (truncatedForeignKeyMap2.TryGetValue(item.Value, out var originalForeignKeyNames))
+                            {
+                                originalForeignKeyNames.Add(item.Key);
+                            }
+                            else
+                            {
+                                truncatedForeignKeyMap2.Add(item.Value, new List<string> { item.Key });
+                            }
+                        }
+
+                        var additionalTruncationRequired2 =
+                            truncatedForeignKeyMap2.Any(truncatedForeignKey => truncatedForeignKey.Value.Count > 1 &&
+                                                                               truncatedForeignKey.Key.Length == MAX_OBJECT_NAME_LENGTH);
+
+                        if (additionalTruncationRequired2)
+                        {
+                            // Two or more foreign key names will be truncated to exactly 63 characters
+                            // Truncate to 62 characters to allow for appending an integer
+
+                            TruncateDictionaryKeys(truncatedForeignKeyMap2, MAX_OBJECT_NAME_LENGTH - 1);
+                        }
+
+                        // Keys in this dictionary are the original foreign key name; values are the shortened name
+                        var foreignKeyNameMap2 = ConstructForeignKeyMap(truncatedForeignKeyMap2);
+
+                        // Replace the contents of foreignKeyNameMap with foreignKeyNameMap2
+                        foreignKeyNameMap.Clear();
+
+                        foreach (var item in foreignKeyNameMap2)
+                        {
+                            foreignKeyNameMap.Add(item.Key, item.Value);
+                        }
+                    }
+
+                    // Populate a dictionary with renamed foreign keys
+                    var renamedForeignKeys = new Dictionary<string, string>();
+
+                    // ReSharper disable once ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
+                    foreach (var item in foreignKeyNameMap)
+                    {
+                        if (item.Key.Equals(item.Value))
+                            continue;
+
+                        renamedForeignKeys.Add(item.Key, item.Value);
+                    }
+
+                    if (renamedForeignKeys.Count == 0)
+                        continue;
+
+                    var newKeyNames = new StringBuilder();
+
+                    foreach (var item in renamedForeignKeys.Values)
+                    {
+                        newKeyNames.AppendFormat("\n    {0}", item);
+                    }
+
+                    OnWarningEvent(
+                        "Foreign key constraint{0} on table {1} {2} longer than {3} characters; truncating to: {4}",
+                        renamedForeignKeys.Count > 1 ? "s" : string.Empty,
+                        tableName,
+                        renamedForeignKeys.Count > 1 ? "are" : "is",
+                        MAX_OBJECT_NAME_LENGTH,
+                        newKeyNames);
+
+                    foreignKeyRenames.Add(tableName, renamedForeignKeys);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                OnErrorEvent("Error in ResolveForeignKeyNameConflicts", ex);
                 return false;
             }
         }
@@ -550,6 +835,50 @@ namespace PgSqlTableCreatorHelper
             }
 
             return objectName;
+        }
+
+        private void TruncateDictionaryKeys(Dictionary<string, List<string>> truncatedForeignKeyMap, int maximumLength)
+        {
+            var truncatedForeignKeyMapUpdates = new Dictionary<string, List<string>>();
+
+            foreach (var truncatedForeignKey in truncatedForeignKeyMap)
+            {
+                var shortenedName = TruncateString(truncatedForeignKey.Key, maximumLength);
+                truncatedForeignKeyMapUpdates.Add(shortenedName, truncatedForeignKey.Value);
+            }
+
+            truncatedForeignKeyMap.Clear();
+
+            foreach (var replacement in truncatedForeignKeyMapUpdates)
+            {
+                truncatedForeignKeyMap.Add(replacement.Key, replacement.Value);
+            }
+        }
+
+        /// <summary>
+        /// Examine the object name's length and return a shortened string if too long
+        /// </summary>
+        /// <param name="objectName"></param>
+        /// <param name="maximumLength"></param>
+        /// <returns>
+        /// String with length less than or equal to the specified maximum length, shortened to just before the last underscore
+        /// </returns>
+        private static string TruncateString(string objectName, int maximumLength)
+        {
+            if (objectName.Length <= maximumLength)
+                return objectName;
+
+            var trimmedName = objectName.Substring(0, maximumLength);
+
+            if (trimmedName.EndsWith("_"))
+                return trimmedName.TrimEnd('_');
+
+            // Find the last underscore
+            var lastUnderscore = trimmedName.LastIndexOf('_');
+
+            return lastUnderscore < 1
+                ? trimmedName
+                : trimmedName.Substring(0, lastUnderscore);
         }
     }
 }
