@@ -733,8 +733,7 @@ namespace PgSqlTableCreatorHelper
         /// <param name="sourceDataLine"></param>
         /// <param name="indexMatch"></param>
         /// <param name="columnNameMap">
-        /// Dictionary where keys are new table names
-        /// and values are a Dictionary of mappings of original column names to new column names in PostgreSQL;
+        /// Dictionary where keys are new table names and values are a Dictionary of mappings of original column names to new column names in PostgreSQL;
         /// names should not have double quotes around them
         /// </param>
         /// <param name="writer">
@@ -774,7 +773,7 @@ namespace PgSqlTableCreatorHelper
                     ? indexName
                     : indexName.Substring(tableNameIndex + tableName.Length);
 
-                foreach (var item  in nameMapping.Values)
+                foreach (var item in nameMapping.Values)
                 {
                     if (item.TextToFind.Equals("ID", StringComparison.OrdinalIgnoreCase))
                     {
