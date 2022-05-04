@@ -102,6 +102,150 @@ namespace PgSqlTableCreatorHelper
             return objectName;
         }
 
+        private string GetUniqueName(string itemName, string tableName, IDictionary<string, string> nameToTableMap, bool showWarning = true)
+        {
+            if (itemName.Length >= MAX_OBJECT_NAME_LENGTH)
+            {
+                itemName = TruncateString(itemName, MAX_OBJECT_NAME_LENGTH - 1);
+
+                if (showWarning)
+                {
+                    OnWarningEvent(
+                        "Object name on table {0} is longer than {1} characters; truncating to:\n    {2}",
+                        tableName, MAX_OBJECT_NAME_LENGTH, itemName);
+                }
+            }
+
+            for (var addOn = 2; nameToTableMap.ContainsKey(itemName); addOn++)
+            {
+                if (nameToTableMap.ContainsKey(itemName + addOn))
+                    continue;
+
+                itemName += addOn;
+                nameToTableMap.Add(itemName, tableName);
+                break;
+            }
+
+            return itemName;
+        }
+
+        private bool LoadNameMapFiles(out Dictionary<string, Dictionary<string, WordReplacer>> columnNameMap)
+        {
+            var columnMapFile = new FileInfo(mOptions.ColumnNameMapFile);
+
+            if (!columnMapFile.Exists)
+            {
+                OnErrorEvent("Column name map file not found: " + columnMapFile.FullName);
+                columnNameMap = new Dictionary<string, Dictionary<string, WordReplacer>>();
+                return false;
+            }
+
+            var mapReader = new NameMapReader();
+            RegisterEvents(mapReader);
+
+            // In dictionary tableNameMap, keys are the original (source) table names
+            // and values are WordReplacer classes that track the new table names and new column names in PostgreSQL
+
+            // In dictionary columnNameMap, keys are new table names
+            // and values are a Dictionary of mappings of original column names to new column names in PostgreSQL;
+            // names should not have double quotes around them
+
+            // Dictionary tableNameMapSynonyms mas original table names to new table names
+
+            var columnMapFileLoaded = mapReader.LoadSqlServerToPgSqlColumnMapFile(
+                columnMapFile,
+                mOptions.DefaultSchema,
+                true,
+                out var tableNameMap,
+                out columnNameMap);
+
+            if (!columnMapFileLoaded)
+                return false;
+
+            var tableNameMapSynonyms = new Dictionary<string, string>();
+
+            if (!string.IsNullOrWhiteSpace(mOptions.TableNameMapFile))
+            {
+                var tableNameMapFile = new FileInfo(mOptions.TableNameMapFile);
+                if (!tableNameMapFile.Exists)
+                {
+                    OnErrorEvent("Table name map file not found: " + tableNameMapFile.FullName);
+                    return false;
+                }
+
+                var tableNameMapReader = new TableNameMapContainer.NameMapReader();
+                RegisterEvents(tableNameMapReader);
+
+                var tableNameInfo = tableNameMapReader.LoadTableNameMapFile(tableNameMapFile.FullName, true, out var abortProcessing);
+
+                if (abortProcessing)
+                {
+                    return false;
+                }
+
+                // ReSharper disable once ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
+                foreach (var item in tableNameInfo)
+                {
+                    if (tableNameMapSynonyms.ContainsKey(item.SourceTableName) || string.IsNullOrWhiteSpace(item.TargetTableName))
+                        continue;
+
+                    tableNameMapSynonyms.Add(item.SourceTableName, item.TargetTableName);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(mOptions.ColumnNameMapFile2))
+                return true;
+
+            var columnMapFile2 = new FileInfo(mOptions.ColumnNameMapFile2);
+            if (!columnMapFile2.Exists)
+            {
+                OnErrorEvent("Secondary column name map file not found: " + columnMapFile2.FullName);
+                return false;
+            }
+
+            var secondaryMapFileLoaded = mapReader.LoadTableColumnMapFile(columnMapFile2, tableNameMap, columnNameMap, tableNameMapSynonyms);
+
+            if (!secondaryMapFileLoaded)
+                return false;
+
+            // When Perl script sqlserver2pgsql.pl writes out CREATE INDEX lines, the include columns are converted to snake case but are not renamed
+            // To account for this, step through the tables and columns in columnNameMap and add snake case mappings
+            foreach (var tableItem in columnNameMap)
+            {
+                var currentTable = tableItem.Key;
+
+                var columnsToAdd = new Dictionary<string, WordReplacer>();
+
+                foreach (var columnItem in tableItem.Value)
+                {
+                    var updatedColumnName = ConvertNameToSnakeCase(columnItem.Key);
+
+                    if (updatedColumnName.Equals(columnItem.Key, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (updatedColumnName.Equals(columnItem.Value.ReplacementText))
+                        continue;
+
+                    columnsToAdd.Add(updatedColumnName,
+                        new WordReplacer(updatedColumnName, columnItem.Value.ReplacementText, columnItem.Value.DefaultSchema));
+                }
+
+                foreach (var newColumn in columnsToAdd)
+                {
+                    if (!tableItem.Value.ContainsKey(newColumn.Key))
+                    {
+                        tableItem.Value.Add(newColumn.Key, newColumn.Value);
+                    }
+                    else
+                    {
+                        OnDebugEvent("Table {0} already has the mapping {1} -> {2}", currentTable, newColumn.Key, newColumn.Value);
+                    }
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>
         /// Process the input file
         /// </summary>
@@ -127,114 +271,10 @@ namespace PgSqlTableCreatorHelper
                     inputFile.DirectoryName,
                     Path.GetFileNameWithoutExtension(inputFile.Name) + "_updated" + inputFile.Extension);
 
-                var columnMapFile = new FileInfo(mOptions.ColumnNameMapFile);
-                if (!columnMapFile.Exists)
-                {
-                    OnErrorEvent("Column name map file not found: " + columnMapFile.FullName);
-                    return false;
-                }
-
-                var mapReader = new NameMapReader();
-                RegisterEvents(mapReader);
-
-                // In dictionary tableNameMap, keys are the original (source) table names
-                // and values are WordReplacer classes that track the new table names and new column names in PostgreSQL
-
-                // In dictionary columnNameMap, keys are new table names
-                // and values are a Dictionary of mappings of original column names to new column names in PostgreSQL;
-                // names should not have double quotes around them
-
-                // Dictionary tableNameMapSynonyms mas original table names to new table names
-
-                var columnMapFileLoaded = mapReader.LoadSqlServerToPgSqlColumnMapFile(
-                    columnMapFile,
-                    mOptions.DefaultSchema,
-                    true,
-                    out var tableNameMap,
-                    out var columnNameMap);
-
-                if (!columnMapFileLoaded)
+                // Load the various name map files
+                if (!LoadNameMapFiles(out var columnNameMap))
                     return false;
 
-                var tableNameMapSynonyms = new Dictionary<string, string>();
-
-                if (!string.IsNullOrWhiteSpace(mOptions.TableNameMapFile))
-                {
-                    var tableNameMapFile = new FileInfo(mOptions.TableNameMapFile);
-                    if (!tableNameMapFile.Exists)
-                    {
-                        OnErrorEvent("Table name map file not found: " + tableNameMapFile.FullName);
-                        return false;
-                    }
-
-                    var tableNameMapReader = new TableNameMapContainer.NameMapReader();
-                    RegisterEvents(tableNameMapReader);
-
-                    var tableNameInfo = tableNameMapReader.LoadTableNameMapFile(tableNameMapFile.FullName, true, out var abortProcessing);
-
-                    if (abortProcessing)
-                    {
-                        return false;
-                    }
-
-                    // ReSharper disable once ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
-                    foreach (var item in tableNameInfo)
-                    {
-                        if (tableNameMapSynonyms.ContainsKey(item.SourceTableName) || string.IsNullOrWhiteSpace(item.TargetTableName))
-                            continue;
-
-                        tableNameMapSynonyms.Add(item.SourceTableName, item.TargetTableName);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(mOptions.ColumnNameMapFile2))
-                {
-                    var columnMapFile2 = new FileInfo(mOptions.ColumnNameMapFile2);
-                    if (!columnMapFile2.Exists)
-                    {
-                        OnErrorEvent("Secondary column name map file not found: " + columnMapFile2.FullName);
-                        return false;
-                    }
-
-                    var secondaryMapFileLoaded = mapReader.LoadTableColumnMapFile(columnMapFile2, tableNameMap, columnNameMap, tableNameMapSynonyms);
-
-                    if (!secondaryMapFileLoaded)
-                        return false;
-
-                    // When Perl script sqlserver2pgsql.pl writes out CREATE INDEX lines, the include columns are converted to snake case but are not renamed
-                    // To account for this, step through the tables and columns in columnNameMap and add snake case mappings
-                    foreach (var tableItem in columnNameMap)
-                    {
-                        var currentTable = tableItem.Key;
-
-                        var columnsToAdd = new Dictionary<string, WordReplacer>();
-
-                        foreach (var columnItem in tableItem.Value)
-                        {
-                            var updatedColumnName = ConvertNameToSnakeCase(columnItem.Key);
-
-                            if (updatedColumnName.Equals(columnItem.Key, StringComparison.OrdinalIgnoreCase))
-                                continue;
-
-                            if (updatedColumnName.Equals(columnItem.Value.ReplacementText))
-                                continue;
-
-                            columnsToAdd.Add(updatedColumnName, new WordReplacer(updatedColumnName, columnItem.Value.ReplacementText, columnItem.Value.DefaultSchema));
-                        }
-
-                        foreach (var newColumn in columnsToAdd)
-                        {
-                            if (!tableItem.Value.ContainsKey(newColumn.Key))
-                            {
-                                tableItem.Value.Add(newColumn.Key, newColumn.Value);
-                            }
-                            else
-                            {
-                                OnDebugEvent("Table {0} already has the mapping {1} -> {2}", currentTable, newColumn.Key, newColumn.Value);
-                            }
-                        }
-                    }
-                }
 
                 var addConstraintMatcher = new Regex(
                     "^ *ALTER TABLE (?<TableName>.+?) ADD CONSTRAINT (?<ConstraintName>.+?) (?<ConstraintType>UNIQUE|PRIMARY KEY)",
@@ -461,16 +501,7 @@ namespace PgSqlTableCreatorHelper
                 if (nameUpdateRequired)
                 {
                     // Append an integer to generate a unique name
-
-                    for (var addOn = 2; indexAndConstraintNames.ContainsKey(indexNameNoQuotes); addOn++)
-                    {
-                        if (indexAndConstraintNames.ContainsKey(indexNameNoQuotes + addOn))
-                            continue;
-
-                        indexNameNoQuotes += addOn;
-                        indexAndConstraintNames.Add(indexName, tableName);
-                        break;
-                    }
+                    indexNameNoQuotes = GetUniqueName(indexNameNoQuotes, tableName, indexAndConstraintNames);
                 }
 
                 // Update indexName, surrounding with double quotes
