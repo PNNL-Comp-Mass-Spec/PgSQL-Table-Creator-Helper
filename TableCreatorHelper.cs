@@ -867,6 +867,30 @@ namespace PgSqlTableCreatorHelper
                 indexAndConstraintNames.Add(indexNameNoQuotes, tableName);
             }
 
+            if (indexNameNoQuotes.Length >= MAX_OBJECT_NAME_LENGTH)
+            {
+                // Need to shorten the name
+                var truncatedName = TruncateString(indexNameNoQuotes, MAX_OBJECT_NAME_LENGTH);
+
+                if (indexAndConstraintNames.ContainsKey(truncatedName))
+                {
+                    // Append an integer to generate a unique name
+                    indexNameNoQuotes = GetUniqueName(truncatedName, tableName, indexAndConstraintNames, false);
+                }
+                else
+                {
+                    indexAndConstraintNames.Add(truncatedName, tableName);
+                    indexNameNoQuotes = truncatedName;
+                }
+
+                OnWarningEvent(
+                    "Index name on table {0} is longer than {1} characters; truncating to:\n    {2}",
+                    tableName, MAX_OBJECT_NAME_LENGTH, indexNameNoQuotes);
+
+                // Update indexName, surrounding with double quotes
+                indexName = string.Format("\"{0}\"", indexNameNoQuotes);
+            }
+
             if (!indexMatch.Groups["IndexName"].Value.Equals(indexName))
             {
                 OnDebugEvent("Renaming index from {0}\n{1}to {2}",
