@@ -748,7 +748,7 @@ namespace PgSqlTableCreatorHelper
             TextWriter writer,
             IDictionary<string, string> indexAndConstraintNames)
         {
-            var referencedTables = new SortedSet<string>();
+            var referencedTables = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var indexName = indexMatch.Groups["IndexName"].Value;
 
