@@ -798,10 +798,9 @@ namespace PgSqlTableCreatorHelper
 
                     indexNamePortion = columnNameMatcher.Replace(indexNamePortion, updatedIndexNamePart);
 
-                    if (tableNameIndex < 0)
-                        indexName = indexNamePortion;
-                    else
-                        indexName = indexName.Substring(0, tableNameIndex + tableName.Length) + indexNamePortion;
+                    indexName = tableNameIndex < 0
+                        ? indexNamePortion
+                        : indexName.Substring(0, tableNameIndex + tableName.Length) + indexNamePortion;
                 }
             }
 
