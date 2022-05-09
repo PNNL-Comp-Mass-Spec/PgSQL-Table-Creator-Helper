@@ -18,16 +18,6 @@ namespace PgSqlTableCreatorHelper
         /// </summary>
         private const int MAX_OBJECT_NAME_LENGTH = 63;
 
-        /// <summary>
-        /// Match any lowercase letter
-        /// </summary>
-        private readonly Regex mAnyLowerMatcher;
-
-        /// <summary>
-        /// Match a lowercase letter followed by an uppercase letter
-        /// </summary>
-        private readonly Regex mCamelCaseMatcher;
-
         private readonly TableCreatorHelperOptions mOptions;
 
         /// <summary>
@@ -37,10 +27,6 @@ namespace PgSqlTableCreatorHelper
         public TableCreatorHelper(TableCreatorHelperOptions options)
         {
             mOptions = options;
-
-            mAnyLowerMatcher = new Regex("[a-z]", RegexOptions.Compiled | RegexOptions.Singleline);
-
-            mCamelCaseMatcher = new Regex("(?<LowerLetter>[a-z])(?<UpperLetter>[A-Z])", RegexOptions.Compiled);
         }
 
         /// <summary>
@@ -81,27 +67,6 @@ namespace PgSqlTableCreatorHelper
             }
 
             return foreignKeyNameMap;
-        }
-
-        /// <summary>
-        /// Convert the object name to snake_case
-        /// </summary>
-        /// <param name="objectName"></param>
-        private string ConvertNameToSnakeCase(string objectName)
-        {
-            if (!mAnyLowerMatcher.IsMatch(objectName))
-            {
-                // objectName contains no lowercase letters; simply change to lowercase and return
-                return objectName.ToLower();
-            }
-
-            var match = mCamelCaseMatcher.Match(objectName);
-
-            var updatedName = match.Success
-                ? mCamelCaseMatcher.Replace(objectName, "${LowerLetter}_${UpperLetter}")
-                : objectName;
-
-            return updatedName.ToLower();
         }
 
         private List<string> GetColumnNames(Group columnMatchGroup)
@@ -265,7 +230,7 @@ namespace PgSqlTableCreatorHelper
 
                 foreach (var columnItem in tableItem.Value)
                 {
-                    var updatedColumnName = ConvertNameToSnakeCase(columnItem.Key);
+                    var updatedColumnName = NameUpdater.ConvertNameToSnakeCase(columnItem.Key);
 
                     if (updatedColumnName.Equals(columnItem.Key, StringComparison.OrdinalIgnoreCase))
                         continue;
