@@ -341,11 +341,11 @@ ALTER TABLE "public"."t_organisms_change_history" ADD CONSTRAINT "pk_t_organisms
 ALTER TABLE "public"."t_analysis_job_processor_group" ADD CONSTRAINT "ix_t_analysis_job_processor_group_unique_group_name" UNIQUE ("group_name");
 ALTER TABLE "public"."t_analysis_job_processors" ADD CONSTRAINT "ix_t_analysis_job_processors_unique_processor_name" UNIQUE ("processor_name");
 ALTER TABLE "public"."t_lc_cart" ADD CONSTRAINT "ix_t_lc_cart_unique_cart_name" UNIQUE ("cart_name");
-ALTER TABLE "public"."t_mass_correction_factors" ADD CONSTRAINT "ix_t_mass_correction_factors_unique_mass_and_affected_atom" UNIQUE ("monoisotopic_mass","affected_atom");
+ALTER TABLE "public"."t_mass_correction_factors" ADD CONSTRAINT "ix_t_mass_correction_factors_monoisotopic_mass_and_affected" UNIQUE ("monoisotopic_mass","affected_atom");
 ALTER TABLE "public"."t_organism_db_file" ADD CONSTRAINT "ix_t_organism_db_file_unique_file_name" UNIQUE ("file_name");
-ALTER TABLE "public"."t_users" ADD CONSTRAINT "ix_t_users_unique_prn" UNIQUE ("prn");
+ALTER TABLE "public"."t_users" ADD CONSTRAINT "ix_t_users_u_prn" UNIQUE ("prn");
 ALTER TABLE "public"."t_wellplates" ADD CONSTRAINT "ix_t_wellplates_unique_wellplate" UNIQUE ("wellplate");
-ALTER TABLE "public"."t_organisms" ADD CONSTRAINT "ix_t_organisms_unique_organism" UNIQUE ("organism");
+ALTER TABLE "public"."t_organisms" ADD CONSTRAINT "ix_t_organisms_name" UNIQUE ("organism");
 CREATE INDEX "ix_t_acceptable_param_entries_entry_type_id" ON "public"."t_acceptable_param_entries" ("param_entry_type_id" ASC);
 CREATE INDEX "ix_t_analysis_job_last_affected" ON "public"."t_analysis_job" ("last_affected" ASC);
 CREATE INDEX "ix_t_analysis_job_job_state_id_job" ON "public"."t_analysis_job" ("job_state_id" ASC,"job" ASC);
