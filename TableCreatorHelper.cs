@@ -723,7 +723,7 @@ namespace PgSqlTableCreatorHelper
             var tableName = TrimQuotes(GetNameWithoutSchema(tableNameWithSchema));
             referencedTables.Add(tableName);
 
-            var updatedLine = NameUpdater.UpdateColumnNames(columnNameMap, referencedTables, sourceDataLine, false);
+            var updatedLine = NameUpdater.UpdateColumnNames(columnNameMap, referencedTables, sourceDataLine, false, false);
 
             // Check for old column names in the index name
 
