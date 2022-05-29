@@ -549,12 +549,6 @@ namespace PgSqlTableCreatorHelper
                 {
                     var tableName = currentTable.Key;
 
-                    if (tableName.Equals("t_analysis_job_processor_group_membership"))
-                    {
-                        // Bad updated foreign key name: "t_analysis_job_processor_group_t_analysis_job_processor_group"
-                        Console.WriteLine("Check this code");
-                    }
-
                     truncatedForeignKeyMap.Clear();
                     foreach (var foreignKey in currentTable.Value)
                     {
