@@ -188,6 +188,8 @@ namespace PgSqlTableCreatorHelper
                 var tableNameMapReader = new TableNameMapContainer.NameMapReader();
                 RegisterEvents(tableNameMapReader);
 
+                OnStatusEvent("Reading " + PathUtils.CompactPathString(tableNameMapFile.FullName, 100));
+
                 var tableNameInfo = tableNameMapReader.LoadTableNameMapFile(tableNameMapFile.FullName, true, out var abortProcessing);
 
                 if (abortProcessing)
@@ -214,6 +216,9 @@ namespace PgSqlTableCreatorHelper
                 OnErrorEvent("Secondary column name map file not found: " + columnMapFile2.FullName);
                 return false;
             }
+
+            Console.WriteLine();
+            OnStatusEvent("Reading " + PathUtils.CompactPathString(columnMapFile2.FullName, 100));
 
             var secondaryMapFileLoaded = mapReader.LoadTableColumnMapFile(columnMapFile2, tableNameMap, columnNameMap, tableNameMapSynonyms);
 
@@ -305,6 +310,9 @@ namespace PgSqlTableCreatorHelper
 
                 // Keys in this dictionary are index or constraint name, values are the table the index or constraint applies to
                 var indexAndConstraintNames = new Dictionary<string, string>();
+
+                Console.WriteLine();
+                OnStatusEvent("Reading " + PathUtils.CompactPathString(inputFile.FullName, 100));
 
                 using var reader = new StreamReader(new FileStream(inputFile.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
                 using var writer = new StreamWriter(new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.Read));
@@ -463,7 +471,8 @@ namespace PgSqlTableCreatorHelper
 
                 writer.WriteLine();
 
-                writer.WriteLine("Processed {0} lines in the input file", rowsProcessed);
+                Console.WriteLine();
+                OnStatusEvent("Processed {0} lines in the input file", rowsProcessed);
 
                 return true;
             }
