@@ -1,7 +1,7 @@
 # PgSQL Table Creator Helper
 
-This program processes a SQL DDL file with `CREATE INDEX` commands and renames the
-column names referenced by the DDL statements to use new names defined in a
+This program processes a PostgreSQL DDL file with `CREATE INDEX` commands and renames the
+column names referenced by the Postgres DDL statements to use new names defined in a
 mapping file (or files).
 
 This program is derived from the PgSQL View Creator Helper program, available at
