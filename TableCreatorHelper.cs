@@ -11,7 +11,7 @@ namespace PgSqlTableCreatorHelper
 {
     public class TableCreatorHelper : EventNotifier
     {
-        // Ignore Spelling: dbo, dms, dpkg, mc, Postgres, ont, sw
+        // Ignore Spelling: dbo, dms, dpkg, mc, Postgres, ont, Sql, sw
 
         /// <summary>
         /// Maximum length of object names in PostgreSQL
