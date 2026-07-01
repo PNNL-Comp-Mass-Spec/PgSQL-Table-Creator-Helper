@@ -20,6 +20,8 @@ namespace PgSqlTableCreatorHelper
 
         private readonly TableCreatorHelperOptions mOptions;
 
+#pragma warning disable IDE0290 // Use primary constructor
+
         /// <summary>
         /// Constructor
         /// </summary>
@@ -28,6 +30,8 @@ namespace PgSqlTableCreatorHelper
         {
             mOptions = options;
         }
+
+#pragma warning restore IDE0290 // Use primary constructor
 
         /// <summary>
         /// Determine the actual foreign key name to use for each foreign key
